@@ -32,13 +32,14 @@ PINK = (255, 102, 153)
 # Define classes.
 class Game:
     ''' A class to control and update the gameplay'''
-    def __init__(self, player, paddle, paddle_group, ball_group, brick_group):
+    def __init__(self, player, paddle, paddle_group, ball_group, brick_group, powerup_group):
         '''Initialize the game'''
         self.player = player
         self.paddle = paddle
         self.paddle_group = paddle_group
         self.ball_group = ball_group
         self.brick_group = brick_group
+        self.powerup_group = powerup_group
 
         self.level_number = 1
 
@@ -63,6 +64,7 @@ class Game:
         self.check_collisions()
         self.check_fallen_ball()
         self.check_level_completion()
+        self.check_fallen_powerup()
 
     def draw(self):
         '''Draw the HUD and other information to the display'''
@@ -104,7 +106,7 @@ class Game:
         # Check for collisions between the ball and the paddle.
         if pygame.sprite.spritecollide(self.paddle, self.ball_group, False):
             self.paddle_hit.play()
-            for ball in self.ball_group:
+            for ball in pygame.sprite.groupcollide(self.ball_group, self.paddle_group, False, False):
                 alpha = ball.rect.centerx - self.paddle.rect.centerx
                 beta = self.paddle.width / 2
                 ball.dx = alpha / beta
@@ -113,6 +115,9 @@ class Game:
         # Check for collision between the ball and bricks.
         for ball in self.ball_group:
             for brick in pygame.sprite.spritecollide(ball, self.brick_group, False):
+                # Set the ball_brick_collision variable to False.
+                ball_brick_collision = False
+
                 # Set the hit zones within the brick that has been struck.
                 hit_zone_buffer = ball.diameter / 2
                 hit_zone_l = pygame.Rect(brick.rect.topleft, (hit_zone_buffer, brick.height))
@@ -122,28 +127,41 @@ class Game:
 
                 # Check which hit zone the ball has collided with.
                 if hit_zone_l.collidepoint(ball.rect.right, ball.rect.centery):
+                    ball_brick_collision = True
                     ball.dx = (-1) * ball.dx
-                    brick.kill()
-                    self.brick_hit.play()
                 elif hit_zone_r.collidepoint(ball.rect.left, ball.rect.centery):
+                    ball_brick_collision = True
                     ball.dx = (-1) * ball.dx
-                    brick.kill()
-                    self.brick_hit.play()
                 elif hit_zone_b.collidepoint(ball.rect.centerx, ball.rect.top):
+                    ball_brick_collision = True
                     ball.dy = (-1) * ball.dy
-                    brick.kill()
-                    self.brick_hit.play()
                 elif hit_zone_t.collidepoint(ball.rect.centerx, ball.rect.bottom):
+                    ball_brick_collision = True
                     ball.dy = (-1) * ball.dy
-                    brick.kill()
+
+                if ball_brick_collision:
+                    # Play the hit sound and kill the brick.
                     self.brick_hit.play()
+                    brick.kill()
+
+                    # Determine whether to generate a powerup.
+                    if random.choice(list(range(5))) == random.choice(list(range(5))):
+                        new_powerup = PowerUp(brick.rect.centerx, brick.rect.centery, random.choice(['AddBall']))
+                        self.powerup_group.add(new_powerup)
 
                 # Add to the player's score based on the level number and the level timer.
                 if self.level_timer <= 60:
                     self.player.score += self.level_number * 10 + (60 - self.level_timer)
                 else:
                     self.player.score += self.level_number * 10
-    
+        
+        # Check for collisions between the paddle and a powerup.
+        for powerup in self.powerup_group:
+            if pygame.sprite.spritecollide(powerup, self.paddle_group, False):
+                powerup.kill()
+                if powerup.ptype == 'AddBall':
+                    self.add_ball()
+
     def check_fallen_ball(self):
         '''Check if any of the player's balls has fallen off of the screen'''
         # If a ball has fallen off the screen, check whether it is the last ball the player has.
@@ -165,10 +183,13 @@ class Game:
                     ball.reset()
                     self.paddle.reset()
 
-                    # Update the display
+                    # Remove all current powerups on the screen
+                    self.powerup_group.empty()
+
+                    # Update the display.
                     display_surface.fill(BLACK)
                     self.draw()
-                    self.ball_group.draw(display_surface)
+                    self.powerup_group.draw(display_surface)
                     self.paddle_group.draw(display_surface)
                     self.brick_group.draw(display_surface)
                     pygame.display.update()
@@ -179,7 +200,13 @@ class Game:
                         self.reset_game()
                     else:
                         self.pause_game('Life Lost!', 'Press ENTER to Continue', False)
-                
+
+    def check_fallen_powerup(self):
+        '''Check whether any existing powerups have fallen off the screen; if so, delete it'''
+        for powerup in self.powerup_group:
+            if powerup.rect.top >= WINDOW_HEIGHT:
+                powerup.kill()
+
     def check_level_completion(self):
         '''Check whether the current level has been completed'''
         # Check whether there are no more bricks remaining.
@@ -209,7 +236,11 @@ class Game:
             self.start_new_level()
         else:
             pass
-                
+
+    def add_ball(self):
+        new_ball = Ball(self.paddle_group.sprites()[0].rect.centerx, self.paddle_group.sprites()[0].rect.top, self.level_number + 3)
+        self.ball_group.add(new_ball)
+
     def start_new_level(self):
         '''Start a new level of the game'''
         self.level_timer = 0
@@ -222,21 +253,21 @@ class Game:
 
         if self.level_number == 1:
             self.level = Level(f'levels/level_{self.level_number}.txt', 'Heart')
-            my_ball = Ball(self.level_number + 3)
+            my_ball = Ball(self.paddle_group.sprites()[0].rect.centerx, self.paddle_group.sprites()[0].rect.top, self.level_number + 3)
             self.ball_group.add(my_ball)
         elif self.level_number == 2:
             self.level = Level(f'levels/level_{self.level_number}.txt', 'Box')
-            my_ball = Ball(self.level_number + 3)
+            my_ball = Ball(self.paddle_group.sprites()[0].rect.centerx, self.paddle_group.sprites()[0].rect.top, self.level_number + 3)
             self.ball_group.add(my_ball)
         elif self.level_number == 3:
             self.level = Level(f'levels/level_{self.level_number}.txt', 'Hourglass')
-            my_ball = Ball(self.level_number + 3)
+            my_ball = Ball(self.paddle_group.sprites()[0].rect.centerx, self.paddle_group.sprites()[0].rect.top, self.level_number + 3)
             self.ball_group.add(my_ball)
         else:
             self.pause_game('You Win!', 'Press ENTER to play again!', True)
             self.player.reset()
             self.level_number = 1
-            my_ball = Ball(self.level_number + 3)
+            my_ball = Ball(self.paddle_group.sprites()[0].rect.centerx, self.paddle_group.sprites()[0].rect.top, self.level_number + 3)
             self.ball_group.add(my_ball)
             self.level = Level(f'levels/level_{self.level_number}.txt', 'Heart')
 
@@ -299,6 +330,7 @@ class Game:
         self.player.reset()
         self.brick_group.empty()
         self.ball_group.empty()
+        self.powerup_group.empty()
         self.level_number = 1
         self.start_new_level()
     
@@ -344,9 +376,9 @@ class Paddle(pygame.sprite.Sprite):
         keys = pygame.key.get_pressed()
 
         # Move the player if the left or right arrow key has been pressed and they are within the screen bounds.
-        if keys[pygame.K_LEFT] and self.rect.left >= 0:
+        if keys[pygame.K_a] and self.rect.left >= 0:
             self.rect.x -= self.velocity
-        if keys[pygame.K_RIGHT] and self.rect.right <= WINDOW_WIDTH:
+        if keys[pygame.K_d] and self.rect.right <= WINDOW_WIDTH:
             self.rect.x += self.velocity
     
     def reset(self):
@@ -355,7 +387,7 @@ class Paddle(pygame.sprite.Sprite):
 
 class Ball(pygame.sprite.Sprite):
     '''A class to model the ball'''
-    def __init__(self, velocity):
+    def __init__(self, x, y, velocity):
         '''Initialize the ball'''
         # Inherit the parent class's attributes and methods.
         super().__init__()
@@ -376,7 +408,8 @@ class Ball(pygame.sprite.Sprite):
 
         # Generate and locate the ball rect.
         self.rect = self.image.get_rect()
-        self.rect.center = (WINDOW_WIDTH / 2, WINDOW_HEIGHT - 55)
+        self.rect.center = (x, y)
+        #self.rect.center = (WINDOW_WIDTH / 2, WINDOW_HEIGHT - 55)
     
     def update(self):
         '''Move the ball'''
@@ -411,8 +444,32 @@ class Brick(pygame.sprite.Sprite):
 
 class PowerUp(pygame.sprite.Sprite):
     '''A powerup that the player can obtain'''
-    def __init__(self, x, y, type_int):
+    def __init__(self, x, y, ptype):
+        # Inherit the parent classes attributes and methods.
         super().__init__()
+
+        # Set the width and height of the powerup block.
+        self.height = 20
+        self.width = 20
+
+        # Define the powerup image as a pygame surface and fill it with the color white.
+        self.image = pygame.Surface([self.width, self.height])
+        self.image.fill(WHITE)
+
+        # Generate and locate the power up rect.
+        self.rect = self.image.get_rect()
+        self.rect.centerx = x
+        self.rect.centery = y
+
+        # Define the powerup velocity.
+        self.velocity = 2
+
+        # Define the type of the power up.
+        self.ptype = ptype
+    
+    def update(self):
+        '''Move the powerup down the screen for the player to collect it'''
+        self.rect.y += self.velocity
 
 class Level:
     '''A class to map out a level'''
@@ -455,14 +512,17 @@ my_paddle_group = pygame.sprite.Group()
 my_paddle = Paddle()
 my_paddle_group.add(my_paddle)
 
-# Create the ball group ( we will add Ball objects via the game's start_new_level method)
+# Create the ball group (we will add Ball objects via the game's start_new_level method)
 my_ball_group = pygame.sprite.Group()
 
 # Create the brick group (we will add Brick objects via the game's start_new_level method)
 my_brick_group = pygame.sprite.Group()
 
+# Create the powerup group (we will add PowerUp objects randomly when breaking bricks)
+my_power_up_group = pygame.sprite.Group()
+
 # Create a Game object.
-my_game = Game(my_player, my_paddle, my_paddle_group, my_ball_group, my_brick_group)
+my_game = Game(my_player, my_paddle, my_paddle_group, my_ball_group, my_brick_group, my_power_up_group)
 my_game.start_new_level()
 
 # Initialize a frame counter.
@@ -479,7 +539,7 @@ while my_game.running:
             if event.key == pygame.K_0:
                 my_brick_group.empty()
     
-    # Increment the frame counter ahd level timer.
+    # Increment the frame counter and level timer.
     frame_counter += 1
     if frame_counter % 120 == 0:
         my_game.level_timer += 1
@@ -496,6 +556,9 @@ while my_game.running:
 
     my_brick_group.update()
     my_brick_group.draw(display_surface)
+
+    my_power_up_group.update()
+    my_power_up_group.draw(display_surface)
 
     # Update and draw the Game object.
     my_game.update()
@@ -525,8 +588,13 @@ pygame.quit()
 # Add music and sounds as required (paddle hit, brick hit, wall bounce, start new level, lose a life, etc.) (COMPLETE)
 # Implement a level timer that impacts the player score increment when they hit a brick. (COMPLETE)
 # Revise the UI to include the round timer. (COMPLETE)
-# Add a power up that will randomly drop from a brick after a certain number of bricks are hit...you can have either missiles for a set period of time, additional balls, or an increased paddle size.
+# Add a power up that will randomly drop from a brick. (COMPLETE)
+# The powers will spawn front he brick and move down the screen until the player picks it up. (COMPLETE)
+# The powers will last a certain period of time (say 10 seconds).
+# Powerup # 1: additional ball.
+# Powerup # 2: missiles.
+# Powerup # 3: increased paddle size.
 # The powers will spawn from the brick and move down the screen until the player picks it up. The powers will last a certain period of time (say 10 seconds).
-# Add a george head power up that bounces across the screen and destroys all bricks in its path.
+# Add a monkey power up that bounces across the screen and destroys all bricks in its path.
 # Find a way to make the brick corners rounded...
 # Add a boost mechanic that initiates at 100 and allows the player to increase their movement speed. This will recharge by destroying bricks.
